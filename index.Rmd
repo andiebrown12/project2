@@ -46,19 +46,24 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Andie Brown, ajb5656
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+*Recently, I have been watching more baseball and really got into the sport during the World Series in which the Astros played the Braves. Thus, I found analyzing baseball statistics to be an interesting topic to investigate for project 2. I am using the ‘Baseball’ dataset which is part of the vcd package installed in R. The dataset I used has a total of 322 observations with 25 different variables, 3 of which are binary and 17 of which are numeric. The first two variables, name 1 and name 2 indicate the baseball player’s first and last name. The numeric variables: atbat86, hits86, homer86, runs86, rbi86, and walks86 represent the baseball player’s total number of times up at bat, times hitting the ball, homeruns, runs scored by the player, runs batted in, and walks to first base during the 1986 season. The same explanation goes for the variables atbat, hits, homeruns, runs, rbi, and walks, but represents the total throughout the players career rather than just the 1986 season. Additionally, the variable years gives the total number of years a player has been playing professionally. League86 and league87 are two binary variables that indicate whether the player was in the National league (N) or the American league (A) during the 1986 and 1987 season. League86 has 175 observations for A and 147 for N, while league87 has 176 for A and 174 for N. Div86 is the third binary variable that indicates whether the player played in the East (E) or West (W) division. Div86 has 157 observations for E and 165 for W . Team86 and team87 give the name of the team that the player was on during the two seasons, posit86 gives the position of the player during the 1986 season, and sal87 gives the player’s salary during the 1987 season.* 
 
 ```{R}
 library(tidyverse)
 # read your datasets in here, e.g., with read_csv()
+baseball_data<- read_csv("https://vincentarelbundock.github.io/Rdatasets/csv/vcd/Baseball.csv")
+head(baseball_data)
 
 # if your dataset needs tidying, do so here
 
 # any other code here
+baseball_data%>%count(league86)
+baseball_data%>%count(league87)
+baseball_data%>%count(div86)
 ```
 
 ### Cluster Analysis
@@ -66,72 +71,175 @@ library(tidyverse)
 ```{R}
 library(cluster)
 # clustering code here
+library(GGally)
+baseball_data%>%select(years,atbat,hits,homeruns,runs)->bball_data
+bball_data%>%drop_na()->bball_data
+maxsil_width <- vector()
+for (i in 2:10) {
+    kms <- kmeans(bball_data, centers = i)
+    sil <- silhouette(kms$cluster, dist(bball_data))
+    maxsil_width[i] <- mean(sil[, 3])
+}
+ggplot() + geom_line(aes(x = 1:10, y = maxsil_width)) + 
+    scale_x_continuous(name = "k", breaks = 1:10)
+pam1<-bball_data%>%pam(k=2)
+pam1
+pam1$silinfo$avg.width
+bball_data%>%mutate(cluster=as.factor(pam1$clustering))%>% ggpairs(cols = 1:6, aes(color=cluster))
+
 ```
 
-Discussion of clustering here
+*The number of clusters was chosen to be two as this resulted in the largest average silhouette width. Additionally, the average silhouette width was 0.64, meaning that a reasonable cluster structure was found. Furthermore, by looking at the cluster plots, many correlations can be found. All of the correlations are strong and positive, as the lowest correlation value was 0.722 between the number of career homeruns and number of years spent playing professional baseball. The strongest, positive correlation was 0.995, between careers hits and the number of times at bat. This makes sense as the more times one is up to bat, the more chances they will have for a hit.Something that was interesting was that the second lowest correlation value was 0.787 between the number of career hits and number of career homeruns. There is a positive correlation between the two as the more you hit the ball, the more chances you have for a homerun. But what is interesting is that the two lowest correlation values involve the variable "homeruns", which reflects how rare homeruns really are in a real game.*
     
     
 ### Dimensionality Reduction with PCA
 
 ```{R}
 # PCA code here
-```
+princomp(bball_data, cor=T) -> pca1
+summary(pca1, loadings="T")
+pcmatcor<-pca1$scores
+results<-pcmatcor%>%as.data.frame%>%mutate(salary=baseball_data$sal87)
+results%>%ggplot(aes(Comp.1,Comp.2))+geom_point(aes(color=salary))
 
-Discussions of PCA here. 
+```
+*Here a ggplot was created in which PC2 is plotted against PC1, and the data points, which represent the different baseball players in the dataset, are color coded based on the salary they earned in 1987. For PC1, the loadings are very similar in value and are positive. This means that scoring high on PC1 means that those players have higher values for career years, times at bat, times hitting the ball, homeruns, and runs. Scoring low on PC1 would indicate that a player has lower values for those variables. PC2 represents a years, atbat, and hits vs. homeruns axis. Thus scoring high on PC2 means high values for career years, times at bat, and times hitting the ball, but low values for homeruns. Conversely, scoring low on PC2 means low values for career years, times at bat, and times hitting the ball, but high values for homeruns. Furthermore, almost all of the total variance can be explained by PC1, as it can explain 90.6% of the total variance. When PC1 and PC2 are included together, then 96.9% of the total variance is explained.*
+ 
 
 ###  Linear Classifier
 
 ```{R}
 # linear classifier code here
+baseball_data%>%drop_na()->baseball
+baseball<-baseball%>%mutate(div86= ifelse(div86 == "E",1,0))
+l_fit<-glm(div86 ~ atbat86 +hits86+ homer86+ runs86 +rbi86 + walks86+ years+atbat+hits+homeruns, data=baseball, family= "binomial")
+probs<-predict(l_fit,type = "response")
+class_diag(probs, baseball$div86, positive = "1")
+table(truth= baseball$div86, predictions=probs>.5)
+
 ```
 
 ```{R}
 # cross-validation of linear classifier here
+set.seed(322)
+k=10
+
+data<-sample_frac(baseball) 
+folds <- rep(1:k, length.out=nrow(data))
+
+diags<-NULL
+
+i=1
+for(i in 1:k){
+train<-data[folds!=i,] 
+test<-data[folds==i,] 
+truth<-test$div86
+
+
+new_fit<-glm(div86 ~ atbat86 +hits86+ homer86+ runs86 +rbi86 + walks86+ years+atbat+hits+homeruns, data=baseball, family= "binomial")
+
+new_probs <- predict(new_fit, newdata= test, type = "response")
+
+diags<-rbind(diags,class_diag(new_probs,truth, positive= "1")) }
+
+summarize_all(diags,mean)
 ```
 
-Discussion here
+*The binary variable being evaluated here is div86, which represents the baseball division in 1986. The two values are either the east division or the west division. Mutate was used so that the east division was represented as 1 and represents the positive cases, while the west division is indicated by a 0 and represents the negative cases.Using a linear classifier, there was an AUC value of 0.6067, which means that this model is performing poorly. Additionally, a confusion matrix was created and showed that the true negative rate was 0.634, which was higher than the true positive rate, which was determined to be 0.511. Which means that the model is worse at correctly predicting positive cases for div86. Specifically, the model is worse at correctly predicting an east division and is better at predicting a correct west division player. Futhermore, a cross validation was performed and resulted in a slightly increased AUC value of 0.61091. This means that model is poor at predicting new observations per CV AUC. While this AUC value is still not too good, the increase in the value means that the model does not show signs of overfitting.*
 
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
 # non-parametric classifier code here
+kfit<-knn3(div86 ~ atbat86 +hits86+ homer86+ runs86 +rbi86 + walks86+ years+atbat+hits+homeruns, data=baseball)
+kprobs<-predict(kfit, newdata = baseball)[,2]
+class_diag(kprobs,baseball$div86, positive = "1")
+table(truth=baseball$div86, predictions= kprobs>.5)
 ```
 
 ```{R}
-# cross-validation of np classifier here
-```
+# cross-validation of non-parametric classifier here
+set.seed(322)
+k=10
 
-Discussion
+bdata<-sample_frac(baseball)
+bfolds <- rep(1:k, length.out=nrow(bdata))
+
+diags<-NULL
+
+i=1
+for(i in 1:k){
+train<-bdata[folds!=i,] 
+test<-bdata[folds==i,] 
+truth<-test$div86
+
+fit <- knn3(div86 == "1" ~ atbat86 +hits86+ homer86+ runs86 +rbi86 + walks86+ years+atbat+hits+homeruns, data=baseball)
+
+bprobs <- predict(fit, newdata=test)[,2]
+
+diags<-rbind(diags,class_diag(bprobs,truth, positive= "1")) }
+
+summarize_all(diags,mean)
+```
+*For the non-parametric classifier, there is an AUC value of 0.7745, which means that this model is performing fair. A confusion matrix was created and from that, the true negative rate was determined to be 0.716 and the true positive rate was determined to be 0.713. In this case, the model is much better at correctly predicting an east or west division compared to the linear classification model. Additionally, the TPR and the TNR are very similar and are somewhat high, which means that this model is fairly good at correctly predicting both a positive case (an east division) and a negative case (a west division). Furthermore, after performing a cross-validation, the AUC value slightly increased to 0.77584. This means that there are no signs of overfitting and that the model is good at predicting new observations per CV AUC. Lastly, the non-parametric model has a much higher cross-validation performance than the linear model, as the non-parametric model has an AUC value of 0.77584 compared to the linear model's AUC value of 0.61091.*
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
 # regression model code here
+refit<-lm(homer86 ~ atbat86+hits86, data=baseball)
+yhat<-predict(refit)
+mean((baseball$homer86-yhat)^2)
+
 ```
 
 ```{R}
 # cross-validation of regression model here
+set.seed(322)
+k=5
+rdata<-baseball[sample(nrow(baseball)),]
+rfolds<-cut(seq(1:nrow(baseball)),breaks=k, labels=F)
+
+diags<-NULL
+for (i in 1:k){
+  rtrain<-rdata[folds!=i, ]
+  rtest<-rdata[folds==i,] 
+  
+  rfit<-lm(homer86 ~ atbat86+hits86, data=baseball)
+  ryhat<-predict(rfit,newdata=rtest)
+  
+  diags<-mean((rtest$homer86-ryhat)^2)
+}
+mean(diags)
 ```
 
-Discussion
+*A linear regression model was used in order to predict the numeric variable 'homer86' from the two predictor variables: atbat86 and hits86. In other words, a linear regression model was created in order to predict the number of homeruns a player had in 1986 from the amount of times they were up to bat and the amount of times they hit the ball when pitched to them in the same year. The mean squared error was determined to be 52.8334, which is quite high but was the smallest MSE when other numeric variables for this dataset were predicted. Furthermore, a cross validation was performed and resulted in a MSE value of 58.58645. Since the MSE value increased, it means that there are signs of overfitting, which is not good.*
 
 ### Python 
 
 ```{R}
 library(reticulate)
+use_python("/usr/bin/python3")
+AB<-"Merry"
 ```
 
 ```{python}
 # python code here
+AB="Christmas"
+print(r.AB,AB)
+
 ```
 
-Discussion
+```{R}
+cat(c(AB,py$AB))
+```
+*In R, AB was defined to be the word Merry, and in python it was defined to be the word Christmas.In both R and python, the two objects were ran together to compute the phrase "Merry Christmas." When doing this in python, the r. must be used in order to access the R defined object AB, and when doing this in R, $py must be used in order to access the python defined object AB.*
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+*Thank you for a great semester!*
 
 
 
